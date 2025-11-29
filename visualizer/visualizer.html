@@ -1,343 +1,130 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8" />
-<title>Dream-Blob Visualizer</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="UTF-8">
+<title>Dream Blob Visualizer</title>
 <style>
-  :root{
-    --bg: #02040a;
-    --cerulean: #5fd7ff;
-    --soft: rgba(95,215,255,0.12);
-    --accent: #86e0ff;
-  }
-  html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,monospace;color:#dffaff;display:flex;align-items:center;justify-content:center}
-  .player {
-    width:720px; max-width:95vw;
-    height:420px; max-height:80vh;
-    border-radius:14px;
-    background:linear-gradient(180deg, rgba(0,18,28,0.85), rgba(0,6,12,0.9));
-    box-shadow: 0 30px 80px rgba(0,0,0,0.7), inset 0 0 30px rgba(40,80,120,0.06);
-    padding:20px; box-sizing:border-box; position:relative; overflow:hidden;
-  }
-
-  /* center stage for logo and blobs */
-  .stage { position:absolute; inset:18px; border-radius:8px; display:flex; align-items:center; justify-content:center; }
-  .logo {
-    width:140px; height:140px; border-radius:20px; display:flex;align-items:center;justify-content:center;
-    background: radial-gradient(circle at 30% 30%, rgba(140,230,255,0.12), rgba(10,30,50,0.5));
-    border: 3px solid rgba(140,230,255,0.12);
-    box-shadow: 0 12px 36px rgba(20,80,110,0.35), inset 0 6px 14px rgba(100,210,255,0.04);
-    z-index:3; position:relative;
-  }
-  .logo img { width:84px; height:84px; object-fit:contain; border-radius:10px; filter: drop-shadow(0 10px 22px rgba(0,120,160,0.22)); }
-
-  /* controls at bottom */
-  .controls { position:absolute; left:18px; right:18px; bottom:18px; display:flex; gap:10px; align-items:center; justify-content:flex-end; z-index:6 }
-  button, label { background:rgba(255,255,255,0.03); color:#dffaff; border:1px solid rgba(120,200,255,0.08); padding:8px 12px; border-radius:10px; cursor:pointer; }
-  button:hover, label:hover{ background: rgba(120,200,255,0.06)}
-  input[type=file]{ display:none; }
-
-  /* svg occupies stage */
-  svg.visual { width:100%; height:100%; position:absolute; left:0; top:0; z-index:1; pointer-events:none; }
-
-  /* decorative corner text */
-  .hint { position:absolute; left:20px; top:20px; font-size:12px; color:rgba(210,250,255,0.6) }
-
-  /* blob styles in css just for initial look */
-  .blob { filter: blur(0px); transform-origin:center; mix-blend-mode:screen; }
+html,body{margin:0;background:#02050a;overflow:hidden;color:#7fd8ff;font-family:system-ui}
+#ui{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
+background:rgba(0,15,30,.7);padding:8px 12px;border-radius:12px;
+backdrop-filter:blur(8px);display:flex;gap:10px;align-items:center}
+button{
+background:#0a3a5a;border:none;color:#aee6ff;padding:6px 12px;
+border-radius:8px;cursor:pointer}
+button:hover{background:#125a88}
+#progress{width:160px;height:6px;background:#062030;border-radius:9px;overflow:hidden}
+#bar{height:100%;width:0%;background:#7fd9ff;transition:width .1s}
+canvas{display:block}
+#status{font-size:12px;opacity:.7}
 </style>
 </head>
+
 <body>
+<canvas id="c"></canvas>
 
-<div class="player" id="playerWrap">
-  <div class="stage" id="stage">
-    <!-- SVG visual layer (blobs) -->
-    <svg class="visual" id="viz" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
-
-    <!-- central logo -->
-    <div class="logo" id="logo">
-      <!-- replace with your logo file; keep same folder or provide path -->
-      <img id="logoImg" src="lithalo099.jpeg" alt="Logo">
-    </div>
-  </div>
-
-  <div class="hint">Drag an audio file onto the player or use Load</div>
-
-  <div class="controls">
-    <label for="file">Load</label>
-    <input id="file" type="file" accept="audio/*">
-    <button id="playBtn">Play</button>
-    <button id="prevBtn">Prev</button>
-    <button id="nextBtn">Next</button>
-    <button id="muteBtn">Mute</button>
-    <button id="visToggle">Toggle Vis</button>
-  </div>
+<div id="ui">
+<button id="load">Load</button>
+<button id="play">▶</button>
+<div id="progress"><div id="bar"></div></div>
+<span id="status">No song loaded</span>
 </div>
 
-<!-- audio element (hidden) -->
 <audio id="audio" crossorigin="anonymous"></audio>
 
 <script>
-/* ====== CONFIG ====== */
-const NUM_BLOBS = 14;                // how many blobs in ring
-const RADIUS = 170;                  // radius of ring in px (around logo center)
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 2.1;
-const SMOOTHING = 0.85;              // smoothing factor for a nicer motion
-const BIN_AGG = 4;                   // how many frequency bins to average per blob
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+addEventListener("resize",resize);resize();
 
-/* ====== DOM ====== */
-const svg = document.getElementById('viz');
-const audioEl = document.getElementById('audio');
-const fileInput = document.getElementById('file');
-const playBtn = document.getElementById('playBtn');
-const muteBtn = document.getElementById('muteBtn');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const visToggle = document.getElementById('visToggle');
-const logo = document.getElementById('logo');
-const logoImg = document.getElementById('logoImg');
+const audio = document.getElementById("audio");
+const bar = document.getElementById("bar");
+const status = document.getElementById("status");
 
-let audioCtx,analyser,source,frequencyData,bufferLength;
-let animationId;
-let blobs = [];      // will store blob objects with DOM refs and smoothed values
-let playing = false;
-let muted = false;
+let audioCtx, analyser, src, dataArray, started=false;
 
-/* playlist support (optional) */
-const playlist = [];
-let currentIndex = -1;
-
-/* ====== create SVG and blobs ====== */
-function createBlobs(n){
-  // clear previous
-  svg.innerHTML = '';
-  blobs = [];
-  const vw = svg.viewBox.baseVal.width || 800;
-  const vh = svg.viewBox.baseVal.height || 500;
-  // center determined relative to svg viewbox; we will compute ring around center
-  const cx = vw/2;
-  const cy = vh/2;
-
-  for(let i=0;i<n;i++){
-    const angle = (i / n) * Math.PI * 2; // radians
-    const x = cx + Math.cos(angle) * RADIUS;
-    const y = cy + Math.sin(angle) * RADIUS;
-
-    // create group for possible fancy shapes
-    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-    const circ = document.createElementNS('http://www.w3.org/2000/svg','circle');
-    circ.setAttribute('cx', x);
-    circ.setAttribute('cy', y);
-    circ.setAttribute('r', 26);
-    circ.setAttribute('fill', `url(#grad${i%3})`);
-    circ.setAttribute('class','blob');
-    // give a soft initial opacity
-    circ.style.opacity = 0.85;
-    g.appendChild(circ);
-
-    svg.appendChild(g);
-
-    // store blob state
-    blobs.push({
-      node: circ,
-      x, y, angle,
-      value: 0,        // last target value (0..1)
-      smooth: 0       // smoothed value used for rendering
-    });
-  }
-}
-
-/* Add gradients defs for nice colors */
-function ensureGradients(){
-  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
-  const g1 = document.createElementNS('http://www.w3.org/2000/svg','radialGradient');
-  g1.id = 'grad0'; g1.setAttribute('cx','30%'); g1.setAttribute('cy','30%');
-  g1.innerHTML = `<stop offset="0%" stop-color="#bff9ff" stop-opacity="0.95"/><stop offset="100%" stop-color="#2ab0e6" stop-opacity="0.9"/>`;
-  const g2 = document.createElementNS('http://www.w3.org/2000/svg','radialGradient');
-  g2.id = 'grad1'; g2.setAttribute('cx','30%'); g2.setAttribute('cy','30%');
-  g2.innerHTML = `<stop offset="0%" stop-color="#ffd1ff" stop-opacity="0.95"/><stop offset="100%" stop-color="#c98cff" stop-opacity="0.85"/>`;
-  const g3 = document.createElementNS('http://www.w3.org/2000/svg','radialGradient');
-  g3.id = 'grad2'; g3.setAttribute('cx','30%'); g3.setAttribute('cy','30%');
-  g3.innerHTML = `<stop offset="0%" stop-color="#d8f7c8" stop-opacity="0.95"/><stop offset="100%" stop-color="#88e07a" stop-opacity="0.7"/>`;
-  defs.appendChild(g1); defs.appendChild(g2); defs.appendChild(g3);
-  // optional subtle glow filter
-  const filter = document.createElementNS('http://www.w3.org/2000/svg','filter');
-  filter.id = 'fblur'; filter.innerHTML = `<feGaussianBlur stdDeviation="6" result="blur" /><feMerge><feMergeNode in="blur"/></feMerge>`;
-  defs.appendChild(filter);
-  svg.appendChild(defs);
-}
-
-/* ====== audio setup ====== */
-function ensureAudioContext(){
-  if(audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+// SETUP AUDIO PIPELINE
+function setup(){
+  if(started) return;
+  started=true;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
   analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 2048;
-  analyser.smoothingTimeConstant = 0.85;
-  bufferLength = analyser.frequencyBinCount;
-  frequencyData = new Uint8Array(bufferLength);
-}
-
-/* connect an existing <audio> element for visualization */
-function connectAudioElement(){
-  ensureAudioContext();
-  if(source) source.disconnect();
-  source = audioCtx.createMediaElementSource(audioEl);
-  source.connect(analyser);
+  analyser.fftSize = 256;
+  dataArray = new Uint8Array(analyser.frequencyBinCount);
+  src = audioCtx.createMediaElementSource(audio);
+  src.connect(analyser);
   analyser.connect(audioCtx.destination);
-  // prepare frequency array
 }
 
-/* play/pause handling */
-playBtn.addEventListener('click', async ()=>{
-  if(!audioEl.src && playlist.length===0){
-    // nothing loaded
-    fileInput.click();
-    return;
-  }
-  if(!audioCtx) ensureAudioContext();
-  if(audioCtx.state === 'suspended') await audioCtx.resume();
-  if(audioEl.paused){
-    audioEl.play();
-    playBtn.innerText = 'Pause';
-    startVisual();
-  } else {
-    audioEl.pause();
-    playBtn.innerText = 'Play';
-    stopVisual();
-  }
-});
+// LOAD
+document.getElementById("load").onclick=()=>{
+ let i=document.createElement("input");
+ i.type="file";
+ i.accept="audio/*";
+ i.onchange=e=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  audio.src=URL.createObjectURL(file);
+  status.innerText=file.name;
+  setup();
+ };
+ i.click();
+};
 
-muteBtn.addEventListener('click', ()=>{
-  muted = !muted;
-  audioEl.muted = muted;
-  muteBtn.innerText = muted ? 'Unmute' : 'Mute';
-});
+// PLAY
+document.getElementById("play").onclick=()=>{
+ setup();
+ audioCtx.resume();
+ audio.paused ? audio.play() : audio.pause();
+};
 
-/* next/prev stub for playlist */
-nextBtn.addEventListener('click', ()=>{ if(playlist.length) nextTrack(); });
-prevBtn.addEventListener('click', ()=>{ if(playlist.length) prevTrack(); });
+// PROGRESS BAR
+audio.ontimeupdate=()=>{
+ if(audio.duration){
+   bar.style.width = (audio.currentTime/audio.duration*100)+"%";
+ }
+};
 
-/* file loading */
-fileInput.addEventListener('change',(ev)=>{
-  const f = ev.target.files[0];
-  if(!f) return;
-  const url = URL.createObjectURL(f);
-  audioEl.src = url;
-  audioEl.load();
-  currentIndex = -1;
-  // auto-play
-  audioEl.play().catch(()=>{});
-  playBtn.innerText = 'Pause';
-  ensureAudioContext();
-  connectAudioElement();
-  startVisual();
-});
-
-/* drag-drop support */
-const playerWrap = document.getElementById('playerWrap');
-playerWrap.addEventListener('dragover', e=>{ e.preventDefault(); playerWrap.style.opacity=0.9; });
-playerWrap.addEventListener('dragleave', e=>{ playerWrap.style.opacity=1; });
-playerWrap.addEventListener('drop', e=>{
-  e.preventDefault();
-  playerWrap.style.opacity=1;
-  const file = e.dataTransfer.files[0];
-  if(file && file.type.startsWith('audio')){
-    const url = URL.createObjectURL(file);
-    audioEl.src = url; audioEl.load();
-    audioEl.play().catch(()=>{});
-    ensureAudioContext();
-    connectAudioElement();
-    playBtn.innerText = 'Pause';
-    startVisual();
-  }
-});
-
-/* ====== visualize loop ====== */
-function startVisual(){
-  ensureAudioContext();
-  connectAudioElement();
-  if(!analyser) return;
-  if(!frequencyData) frequencyData = new Uint8Array(analyser.frequencyBinCount);
-  if(!blobs.length) {
-    ensureGradients();
-    createBlobs(NUM_BLOBS);
-  }
-  if(animationId) cancelAnimationFrame(animationId);
-  renderFrame();
+// BLOBS
+const BLOBS=28;
+const blobs=[];
+for(let i=0;i<BLOBS;i++){
+ blobs.push({
+   r:50+Math.random()*120,
+   a:i/BLOBS*Math.PI*2,
+   s:0
+ });
 }
 
-function stopVisual(){
-  if(animationId) cancelAnimationFrame(animationId);
-  animationId = null;
-}
+function draw(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ const cx=canvas.width/2, cy=canvas.height/2;
 
-function renderFrame(){
-  analyser.getByteFrequencyData(frequencyData);
-  // we want to map slices of the spectrum to each blob
-  const binSize = Math.floor(bufferLength / NUM_BLOBS) || 1;
-  for(let i=0;i<NUM_BLOBS;i++){
-    // aggregate a small range (reduces jitter)
-    let sum = 0;
-    const offset = i * binSize;
-    for(let b=0;b<binSize;b++){
-      sum += frequencyData[offset + b] || 0;
-    }
-    const avg = sum / binSize / 255; // normalized 0..1
-    // apply smoothing
-    blobs[i].value = avg;
-    blobs[i].smooth = blobs[i].smooth * SMOOTHING + blobs[i].value * (1 - SMOOTHING);
-    // map to scale/movement
-    const scale = MIN_SCALE + blobs[i].smooth * (MAX_SCALE - MIN_SCALE);
-    const jitter = 1 + blobs[i].smooth * 12; // jitter radius px
-    // compute new position (slightly radially expand toward center depending on audio)
-    const nx = blobs[i].x + Math.cos(blobs[i].angle) * blobs[i].smooth * 8;
-    const ny = blobs[i].y + Math.sin(blobs[i].angle) * blobs[i].smooth * 8;
-    // set attributes
-    blobs[i].node.setAttribute('r', 10 * scale + 6); // radius
-    blobs[i].node.style.transform = `translate(${(nx - blobs[i].x)/1}px, ${(ny - blobs[i].y)/1}px) scale(${scale})`;
-    // color and opacity
-    const op = 0.45 + blobs[i].smooth * 0.55;
-    blobs[i].node.style.opacity = op;
-    // add glow by filter when loud
-    if(blobs[i].smooth > 0.35) blobs[i].node.setAttribute('filter','url(#fblur)');
-    else blobs[i].node.removeAttribute('filter');
-  }
-  // gently rotate the whole svg ring for motion
-  const t = performance.now() * 0.00008;
-  svg.style.transform = `rotate(${t}turn)`;
-  animationId = requestAnimationFrame(renderFrame);
-}
+ let energy=0;
+ if(analyser){
+  analyser.getByteFrequencyData(dataArray);
+  energy = dataArray.reduce((a,b)=>a+b)/dataArray.length/255;
+ }
 
-/* playlist helpers (very simple) */
-function nextTrack(){
-  if(playlist.length === 0) return;
-  currentIndex = (currentIndex + 1) % playlist.length;
-  audioEl.src = playlist[currentIndex];
-  audioEl.play();
-}
-function prevTrack(){
-  if(playlist.length === 0) return;
-  currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
-  audioEl.src = playlist[currentIndex];
-  audioEl.play();
-}
+ blobs.forEach(b=>{
+  b.s += (energy - b.s)*0.08;
+  const pulse = b.r * (1 + b.s*1.3);
+  const x = cx + Math.cos(b.a)*pulse;
+  const y = cy + Math.sin(b.a)*pulse;
 
-/* create initial view */
-(function init(){
-  // set svg viewBox for predictable math
-  svg.setAttribute('viewBox','0 0 800 500');
-  // create gradients & initial blobs (but we wait until audio present)
-  ensureGradients();
-  createBlobs(NUM_BLOBS);
-  // ensure audio connect attempt on mouse/touch (browsers often require interaction)
-  document.addEventListener('pointerdown', async ()=>{
-    if(!audioCtx) ensureAudioContext();
-    if(audioCtx.state === 'suspended') await audioCtx.resume();
-  }, { once:true });
-})();
+  const glow = ctx.createRadialGradient(x,y,2,x,y,20+energy*80);
+  glow.addColorStop(0,"rgba(120,210,255,.9)");
+  glow.addColorStop(1,"rgba(120,210,255,0)");
+
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x,y,6+energy*12,0,Math.PI*2);
+  ctx.fill();
+ });
+
+ requestAnimationFrame(draw);
+}
+draw();
 </script>
 </body>
 </html>
