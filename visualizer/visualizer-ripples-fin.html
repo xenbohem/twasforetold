@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dream Ripple Visualizer</title>
+<style>
+html,body{
+  margin:0;
+  background:radial-gradient(circle at center,#020c18,#000);
+  overflow:hidden;
+  font-family:system-ui;
+}
+
+#ui{
+  position:fixed;
+  bottom:14px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:10px;
+  align-items:center;
+  background:rgba(10,30,50,.6);
+  padding:8px 12px;
+  border-radius:12px;
+  backdrop-filter:blur(10px);
+  box-shadow:0 0 20px rgba(100,200,255,.3);
+}
+
+button{
+  background:#0e3c5d;
+  color:#bfeaff;
+  border:none;
+  padding:6px 12px;
+  border-radius:8px;
+  cursor:pointer;
+}
+button:hover{background:#166a96}
+
+#progress{
+  width:160px;
+  height:6px;
+  background:#041522;
+  border-radius:8px;
+  overflow:hidden;
+}
+#bar{
+  height:100%;
+  width:0%;
+  background:#79ddff;
+}
+#status{font-size:12px; opacity:.65}
+canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <button id="load">Load</button>
+  <button id="play">Play</button>
+  <div id="progress"><div id="bar"></div></div>
+  <span id="status">Awaiting song...</span>
+</div>
+
+<audio id="audio" crossorigin="anonymous"></audio>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+function resize(){canvas.width=innerWidth; canvas.height=innerHeight;}
+addEventListener("resize",resize);
+resize();
+
+const audio = document.getElementById("audio");
+const bar = document.getElementById("bar");
+const status = document.getElementById("status");
+
+let audioCtx, analyser, src, dataArray, started=false;
+let rippleTime = 0, auraPhase = 0;
+
+// LOGO
+const logo = new Image();
+logo.src = "logo.png";
+logo.onload = ()=>console.log("LOGO LOADED ✅");
+logo.onerror = ()=>console.error("LOGO FAILED TO LOAD ❌");
+
+// LOAD BUTTON
+document.getElementById("load").onclick=()=>{
+  const input=document.createElement("input");
+  input.type="file";
+  input.accept="audio/*";
+  input.onchange=e=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    audio.src = URL.createObjectURL(file);
+    status.innerText = file.name;
+    setup(); // setup analyser immediately
+  };
+  input.click();
+};
+
+// PLAY BUTTON
+document.getElementById("play").onclick = () => {
+  if(!started) setup();
+  audioCtx.resume().then(()=>{ if(audio.paused) audio.play(); });
+};
+
+// AUDIO SETUP
+function setup(){
+  if(started) return;
+  started=true;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+  if(src) src.disconnect();
+  src = audioCtx.createMediaElementSource(audio);
+  src.connect(analyser);
+  analyser.connect(audioCtx.destination);
+
+  audioCtx.resume().then(()=>{ if(audio.paused) audio.play(); });
+}
+
+// PROGRESS BAR
+audio.ontimeupdate=()=>{
+  if(audio.duration) bar.style.width = (audio.currentTime/audio.duration*100)+"%";
+};
+
+// DRAW LOOP
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const cx = canvas.width/2, cy = canvas.height/2;
+  rippleTime += 0.02; auraPhase += 0.02;
+
+  let energy = 0, bass = 0;
+  if(analyser){
+    analyser.getByteFrequencyData(dataArray);
+    let sum = 0;
+    for(let i=0;i<dataArray.length;i++){
+      sum += dataArray[i];
+      if(i<10) bass += dataArray[i];
+    }
+    energy = sum/dataArray.length; // 0-255
+    bass = bass/10; // amplified bass
+  }
+
+  // 🌌 BREATHING / MUSIC-REACTIVE AURA
+  for(let i=0;i<5;i++){
+    const wave = Math.sin(auraPhase + i*0.6) * (20 + energy*0.8);
+    const radius = 190 + wave + i*10;
+    const aura = ctx.createRadialGradient(cx,cy,50,cx,cy,radius);
+    aura.addColorStop(0,`rgba(140,220,255,${0.3 + (energy/255)*0.7})`);
+    aura.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.arc(cx,cy,radius,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // 🌊 LIQUID RIPPLE RINGS
+  for(let r=1;r<14;r++){
+    ctx.beginPath();
+    let base = 90 + r*14;
+    ctx.strokeStyle = "rgba(120,210,255,0.25)";
+    ctx.lineWidth = 2;
+    for(let a=0;a<=Math.PI*2+0.05;a+=0.12){
+      const wave = Math.sin(a*3 + rippleTime*5 + r)*(20 + energy*0.7);
+      const pulse = Math.sin(auraPhase*3 + r)*5;
+      const radius = base + wave + pulse;
+      const x = cx + Math.cos(a)*radius;
+      const y = cy + Math.sin(a)*radius;
+      a===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.closePath(); ctx.stroke();
+  }
+
+  // 💧 RIPPLE REFRACTION SHIMMER
+  for(let t=0;t<40;t++){
+    const ang = Math.random()*Math.PI*2;
+    const rad = 100 + Math.random()*120;
+    const wob = Math.sin(rippleTime*15 + ang*4)*(5 + energy*0.5);
+    const x = cx + Math.cos(ang)*(rad+wob);
+    const y = cy + Math.sin(ang)*(rad+wob);
+    ctx.fillStyle = "rgba(140,220,255,0.05)";
+    ctx.beginPath();
+    ctx.arc(x,y,Math.random()*3,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // 🔮 BREATHING / FADE LOGO GLOW
+  const pulse = 0.3 + 0.7 * Math.sin(rippleTime*5 + energy*0.5);
+  const corePulse = 80 + Math.sin(auraPhase*2)*40 + energy*0.6;
+  const glow = ctx.createRadialGradient(cx, cy, 20, cx, cy, corePulse);
+  glow.addColorStop(0, `rgba(170,240,255,${pulse})`);
+  glow.addColorStop(1,"rgba(0,0,0,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx,cy,corePulse,0,Math.PI*2);
+  ctx.fill();
+
+  // 🖼 LOGO DRAW with preserved aspect ratio
+  if(logo.complete){
+    const scale = 1 + bass*0.01;
+    const maxSize = 130 * scale;
+    const ratio = logo.width/logo.height;
+    const w = maxSize, h = maxSize/ratio;
+    ctx.globalCompositeOperation="lighter";
+    ctx.drawImage(logo,cx-w/2,cy-h/2,w,h);
+    ctx.globalCompositeOperation="source-over";
+  }
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
