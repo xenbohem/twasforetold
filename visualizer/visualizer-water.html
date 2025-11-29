@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dream Ripple Visualizer</title>
+<style>
+html,body{
+  margin:0;
+  background:radial-gradient(circle at center,#020c18,#000);
+  overflow:hidden;
+  color:#7fd8ff;
+  font-family:system-ui;
+}
+
+#ui{
+  position:fixed;
+  bottom:14px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:10px;
+  align-items:center;
+  background:rgba(10,30,50,.6);
+  padding:8px 12px;
+  border-radius:12px;
+  backdrop-filter:blur(10px);
+  box-shadow:0 0 20px rgba(100,200,255,.3);
+}
+
+button{
+  background:#0e3c5d;
+  color:#bfeaff;
+  border:none;
+  padding:6px 12px;
+  border-radius:8px;
+  cursor:pointer;
+}
+
+button:hover{background:#166a96}
+
+#progress{
+  width:160px;
+  height:6px;
+  background:#041522;
+  border-radius:8px;
+  overflow:hidden;
+}
+
+#bar{
+  height:100%;
+  width:0%;
+  background:#79ddff;
+}
+
+#status{font-size:12px; opacity:.65}
+
+canvas{display:block}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui">
+<button id="load">Load</button>
+<button id="play">Play</button>
+<div id="progress"><div id="bar"></div></div>
+<span id="status">Awaiting song...</span>
+</div>
+
+<audio id="audio" crossorigin="anonymous"></audio>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+addEventListener("resize",resize);resize();
+
+const audio = document.getElementById("audio");
+const bar = document.getElementById("bar");
+const status = document.getElementById("status");
+
+let audioCtx, analyser, src, dataArray, started=false;
+let rippleTime = 0;
+
+// LOAD BUTTON
+document.getElementById("load").onclick=()=>{
+ let i=document.createElement("input");
+ i.type="file";
+ i.accept="audio/*";
+ i.onchange=e=>{
+   const file=e.target.files[0];
+   if(!file) return;
+   audio.src = URL.createObjectURL(file);
+   status.innerText = file.name;
+   setup();
+ };
+ i.click();
+};
+
+// PLAY BUTTON
+document.getElementById("play").onclick=()=>{
+ setup();
+ audioCtx.resume();
+ audio.paused ? audio.play() : audio.pause();
+};
+
+// AUDIO SETUP
+function setup(){
+ if(started) return;
+ started=true;
+ audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+ analyser = audioCtx.createAnalyser();
+ analyser.fftSize = 256;
+ dataArray = new Uint8Array(analyser.frequencyBinCount);
+ src = audioCtx.createMediaElementSource(audio);
+ src.connect(analyser);
+ analyser.connect(audioCtx.destination);
+}
+
+// PROGRESS BAR
+audio.ontimeupdate=()=>{
+ if(audio.duration){
+   bar.style.width = (audio.currentTime/audio.duration*100)+"%";
+ }
+};
+
+// LOGO
+const logo = new Image();
+logo.src = "logo.png";
+
+// DRAW LOOP
+function draw(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ const cx = canvas.width/2;
+ const cy = canvas.height/2;
+ rippleTime += 0.01;
+
+ let energy = 0;
+ let bass = 0;
+
+ if(analyser){
+   analyser.getByteFrequencyData(dataArray);
+   let sum = 0;
+   for(let i=0;i<dataArray.length;i++){
+     sum += dataArray[i];
+     if(i < 10) bass += dataArray[i];
+   }
+   energy = sum/dataArray.length/255;
+   bass = bass/10/255;
+ }
+
+ // 🌌 AURA
+ const aura = ctx.createRadialGradient(cx,cy,30,cx,cy,200+energy*300);
+ aura.addColorStop(0,`rgba(150,230,255,${0.6+energy})`);
+ aura.addColorStop(1,"rgba(0,0,0,0)");
+ ctx.fillStyle = aura;
+ ctx.beginPath();
+ ctx.arc(cx,cy,220,0,Math.PI*2);
+ ctx.fill();
+
+ // 🌊 LIQUID RIPPLE WAVES
+ for (let r=1;r<14;r++){
+  ctx.beginPath();
+  let base = 90 + r * 14;
+  ctx.strokeStyle = `rgba(120,210,255,0.15)`;
+  ctx.lineWidth = 2;
+
+  for (let a=0;a<=Math.PI*2+0.05;a+=0.12){
+    const wave = Math.sin(a*3 + rippleTime*2 + r) * (10 + energy * 25);
+    const pulse = Math.sin(rippleTime*3 + r) * 3;
+    const radius = base + wave + pulse;
+
+    const x = cx + Math.cos(a) * radius;
+    const y = cy + Math.sin(a) * radius;
+
+    a===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+ }
+
+ // 🔮 LOGO GLOW
+ const glow = ctx.createRadialGradient(cx,cy,40,cx,cy,120+energy*200);
+ glow.addColorStop(0,`rgba(130,220,255,0.8)`);
+ glow.addColorStop(1,"rgba(0,0,0,0)");
+ ctx.fillStyle = glow;
+ ctx.beginPath();
+ ctx.arc(cx,cy,120,0,Math.PI*2);
+ ctx.fill();
+
+ // 🖼 LOGO DRAW
+ const scale = 1 + bass * 0.4;
+ const size = 130 * scale;
+ ctx.globalCompositeOperation = "lighter";
+ ctx.drawImage(logo,cx-size/2,cy-size/2,size,size);
+ ctx.globalCompositeOperation = "source-over";
+
+ requestAnimationFrame(draw);
+}
+draw();
+</script>
+
+</body>
+</html>
